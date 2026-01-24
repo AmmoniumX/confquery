@@ -83,6 +83,7 @@ public:
   std::vector<Section> sections;
 
   std::span<Line> as_span() { return {lines.begin(), lines.end()}; }
+  std::span<const Line> as_span() const { return {lines.begin(), lines.end()}; }
 
   static string to_string(const Line &line) {
     return std::visit([](const auto &val) { return val.line; }, line);
@@ -185,8 +186,21 @@ public:
     }
   }
 
-  std::optional<ValueEntry> get_value_entry(std::string_view section_name,
-                                            std::string_view value_name) const {
+  std::optional<Section> get_section(string_view section_name) const {
+    const auto section_it = find_section(this->sections, section_name);
+
+    if (section_it == this->sections.end())
+      return std::nullopt;
+
+    return *section_it;
+  }
+
+  bool has_section_header(string_view section_name) const {
+    return get_section(section_name).has_value();
+  }
+
+  std::optional<ValueEntry> get_value_entry(string_view section_name,
+                                            string_view value_name) const {
     const auto section_it = find_section(this->sections, section_name);
 
     if (section_it != sections.end()) {
@@ -263,6 +277,7 @@ public:
       // Add new lines for it
       this->lines.emplace_back(SectionHeader{std::string{section_name}});
       this->lines.emplace_back(ValueEntry{std::string{value}});
+      return;
     }
     for (auto &entry : section_it->entries) {
       if (auto *kv = std::get_if<KeyValueEntry>(&entry)) {
@@ -300,6 +315,31 @@ public:
     append_to_section(
         this->lines, section_it, section_name,
         KeyValueEntry::create(std::string{key}, std::string{value}));
+  }
+
+  bool remove_section(string_view section_name) {
+    // Locate within sections first
+    auto section_it = find_section(this->sections, section_name);
+    if (section_it == this->sections.end()) {
+      return false;
+    }
+
+    // Eliminate from sections
+    this->sections.erase(section_it);
+
+    // Then locate on lines
+    auto lines_sp = this->as_span();
+    auto section_subspan = find_section_subspan(lines_sp, section_name);
+    if (section_subspan.begin() == lines_sp.end()) {
+      throw std::runtime_error(
+          "find_section_subspan cannot fail within remove_value at this point");
+    }
+
+    // Eliminate from lines
+    auto offset = std::distance(lines_sp.begin(), section_subspan.begin());
+    this->lines.erase(this->lines.begin() + offset,
+                      this->lines.begin() + offset + section_subspan.size());
+    return true;
   }
 
   bool remove_value(string_view section_name, string_view value_name) {
@@ -438,7 +478,7 @@ private:
 
   static std::vector<Line>::iterator
   find_section_header(std::vector<Line> &lines, string_view section_name) {
-    return std::find_if(lines.begin(), lines.end(), [section_name](auto l) {
+    return std::find_if(lines.begin(), lines.end(), [section_name](auto &l) {
       if (auto *sh = std::get_if<SectionHeader>(&l)) {
         return sh->line == section_name;
       }
@@ -448,8 +488,18 @@ private:
 
   static std::span<Line>::iterator
   find_section_header(std::span<Line> lines, string_view section_name) {
-    return std::find_if(lines.begin(), lines.end(), [section_name](auto l) {
+    return std::find_if(lines.begin(), lines.end(), [section_name](auto &l) {
       if (auto *sh = std::get_if<SectionHeader>(&l)) {
+        return sh->line == section_name;
+      }
+      return false;
+    });
+  }
+
+  static std::span<const Line>::const_iterator
+  find_section_header(std::span<const Line> lines, string_view section_name) {
+    return std::find_if(lines.begin(), lines.end(), [section_name](auto &l) {
+      if (const auto *sh = std::get_if<SectionHeader>(&l)) {
         return sh->line == section_name;
       }
       return false;
@@ -528,10 +578,12 @@ int main(int argc, char *argv[]) {
   const string USAGE = std::format(
       "{} [FILE] <operation> [options...] \n"
       "Operations:\n"
+      "-Qs [section]: Query if section exists\n"
       "-Qv [section] [value]: Query if value exists\n"
       "-Qk [section] [key]: Query if key exists\n"
+      "-Rs [section]: Remove entire section\n"
       "-Rv [section] [value]: Remove value if exists\n"
-      "-Rv [section] [key]: Remove value with specified key if it exists\n"
+      "-Rk [section] [key]: Remove value with specified key if it exists\n"
       "-Sv [section] [value]: Set value, does nothing if exists\n"
       "-Sv [section] [key] [value]: Set key to value, overriding if exists\n"
       "\n"
@@ -544,13 +596,27 @@ int main(int argc, char *argv[]) {
       "{} /etc/pacman.conf -Sk \"[options]\" \"ParallelDownloads\" \"16\"",
       argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
 
-  if (argc <= 1) {
+  if (argc < 3) {
     std::println(std::cerr, "{}", USAGE);
     return std::to_underlying(ExitCode::EARGS);
   }
 
-  if (argc < 5) {
-    std::println(std::cerr, "Not enough arguments, minimum 4 needed");
+  string_view op{argv[2]};
+  string_view section{argv[3]};
+
+  // Early argument parsing
+  if (op == "-Qs" || op == "-Rs") {
+    if (argc < 4) {
+      std::println(std::cerr, "{}", USAGE);
+      return std::to_underlying(ExitCode::EARGS);
+    }
+  } else if (op == "-Sk") {
+    if (argc < 6) {
+      std::println(std::cerr, "{}", USAGE);
+      return std::to_underlying(ExitCode::EARGS);
+    }
+  } else if (argc < 5) {
+    std::println(std::cerr, "{}", USAGE);
     return std::to_underlying(ExitCode::EARGS);
   }
 
@@ -560,17 +626,25 @@ int main(int argc, char *argv[]) {
     return parsed_res.error();
   auto parsed = parsed_res.value();
 
-  string_view op{argv[2]};
-  string_view section{argv[3]};
+  if (op == "-Qs") {
+    auto query = parsed.get_section(section);
+    if (!query) {
+      return std::to_underlying(ExitCode::FAILURE);
+    }
+    std::println("{}", query->name);
 
-  if (op == "-Qv") {
+    return std::to_underlying(ExitCode::SUCCESS);
+
+  } else if (op == "-Qv") {
     string_view value{argv[4]};
     auto query = parsed.get_value_entry(section, value);
     if (!query) {
       return std::to_underlying(ExitCode::FAILURE);
     }
     std::println("{}", query->value());
+
     return std::to_underlying(ExitCode::SUCCESS);
+
   } else if (op == "-Qk") {
     string_view key{argv[4]};
     auto query = parsed.get_key_value_pair(section, key);
@@ -578,31 +652,42 @@ int main(int argc, char *argv[]) {
       return std::to_underlying(ExitCode::FAILURE);
     }
     std::println("{}", query->value());
+
     return std::to_underlying(ExitCode::SUCCESS);
+
+  } else if (op == "-Rs") {
+    auto res = parsed.remove_section(section);
+    std::cout << parsed << std::endl;
+
+    return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
+
   } else if (op == "-Rv") {
     string_view value{argv[4]};
     auto res = parsed.remove_value(section, value);
     std::cout << parsed << std::endl;
+
     return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
+
   } else if (op == "-Rk") {
     string_view key{argv[4]};
     auto res = parsed.remove_key(section, key);
     std::cout << parsed << std::endl;
+
     return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
+
   } else if (op == "-Sv") {
     string_view value{argv[4]};
     parsed.set_value(section, value);
     std::cout << parsed << std::endl;
+
     return std::to_underlying(ExitCode::SUCCESS);
+
   } else if (op == "-Sk") {
-    if (argc < 6) {
-      std::println(std::cerr, "Not enough arguments, 5 needed");
-      return std::to_underlying(ExitCode::EARGS);
-    }
     string_view key{argv[4]};
     string_view value{argv[5]};
     parsed.set_key_value(section, key, value);
     std::cout << parsed << std::endl;
+
     return std::to_underlying(ExitCode::SUCCESS);
   }
 
