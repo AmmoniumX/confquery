@@ -30,9 +30,9 @@ bash will delete the original file before `confq` is able to read it! If you wan
 making a temporary file, the `sponge` command (from `moreutils`)
 
 ```
-confq /etc/pacman.conf -Qv "[options]" "CheckSpace" | sudo sponge /etc/pacman.conf
+confq /etc/pacman.conf -Qv "[options]" "CheckSpace"
 
-confq /etc/pacman.conf -Qk "[options]" "HoldPkg" | sudo sponge /etc/pacman.conf
+confq /etc/pacman.conf -Qk "[options]" "HoldPkg"
 
 confq /etc/pacman.conf -Rs "[multilib]" | sudo sponge /etc/pacman.conf
 

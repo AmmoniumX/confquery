@@ -603,7 +603,7 @@ int main(int argc, char *argv[]) {
       "{} /etc/pacman.conf -Sk \"[options]\" \"ParallelDownloads\" \"16\"",
       argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
 
-  if (argc < 3) {
+  if (argc < 4) {
     std::println(std::cerr, "{}", USAGE);
     return std::to_underlying(ExitCode::EARGS);
   }
