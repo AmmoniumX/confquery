@@ -168,6 +168,13 @@ public:
 
     // Parse ValueEntry
     if (!has_whitespace(tline)) {
+      if (!current_section.has_value()) {
+        std::println(
+            std::cerr,
+            "[{}] Found Value entry outside of a section definition:\n{}",
+            line_num, line);
+        return parse_error;
+      }
       auto entry = ValueEntry{std::move(line), tline.size()};
       lines.emplace_back(entry);
       current_section->entries.emplace_back(std::move(entry));
