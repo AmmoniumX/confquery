@@ -121,7 +121,7 @@ public:
         std::println(std::cerr,
                      "[{}] Expecting ']' as last character to close section, "
                      "found '{}':\n{}",
-                     line_num, line.back(), line);
+                     line_num, tline.back(), line);
         return parse_error;
       }
 
