@@ -43,4 +43,6 @@ confq /etc/pacman.conf -Rk "[options]" "HoldPkg" | sudo sponge /etc/pacman.conf
 confq /etc/pacman.conf -Sv "[options]" "ILoveCandy" | sudo sponge /etc/pacman.conf
 
 confq /etc/pacman.conf -Sk "[multilib]" "Include" "/etc/pacman.d/mirrorlist" | sudo sponge /etc/pacman.conf
+
+confq /etc/pacman.conf -Sk "[options]" "ParallelDownloads" "16" | sudo sponge /etc/pacman.conf
 ```
