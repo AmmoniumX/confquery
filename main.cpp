@@ -583,7 +583,7 @@ std::expected<ConfigDataView, int> parseFile(const fs::path &path) {
 
 int main(int argc, char *argv[]) {
   const string USAGE = std::format(
-      "{} [FILE] <operation> [options...] \n"
+      "{0} [FILE] <operation> [options...] \n"
       "Operations:\n"
       "-Qs [section]: Query if section exists\n"
       "-Qv [section] [value]: Query if value exists\n"
@@ -595,23 +595,23 @@ int main(int argc, char *argv[]) {
       "-Sv [section] [key] [value]: Set key to value, overriding if exists\n"
       "\n"
       "Example Usage:\n"
-      "{} /etc/pacman.conf -Qv \"[options]\" \"CheckSpace\"\n"
-      "{} /etc/pacman.conf -Qk \"[options]\" \"HoldPkg\"\n"
-      "{} /etc/pacman.conf -Rv \"[options]\" \"CheckSpace\"\n"
-      "{} /etc/pacman.conf -Rk \"[options]\" \"HoldPkg\"\n"
-      "{} /etc/pacman.conf -Sv \"[options]\" \"NoProgressBar\"\n"
-      "{} /etc/pacman.conf -Sk \"[options]\" \"ParallelDownloads\" \"16\"",
-      argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
+      "{0} /etc/pacman.conf -Qv \"[options]\" \"CheckSpace\"\n"
+      "{0} /etc/pacman.conf -Qk \"[options]\" \"HoldPkg\"\n"
+      "{0} /etc/pacman.conf -Rv \"[options]\" \"CheckSpace\"\n"
+      "{0} /etc/pacman.conf -Rk \"[options]\" \"HoldPkg\"\n"
+      "{0} /etc/pacman.conf -Sv \"[options]\" \"NoProgressBar\"\n"
+      "{0} /etc/pacman.conf -Sk \"[options]\" \"ParallelDownloads\" \"16\"",
+      argv[0]);
 
+  // Early parse: min 4 args
   if (argc < 4) {
     std::println(std::cerr, "{}", USAGE);
     return std::to_underlying(ExitCode::EARGS);
   }
-
   string_view op{argv[2]};
   string_view section{argv[3]};
 
-  // Early argument parsing
+  // Parse arguments and execute
   if (op == "-Qs" || op == "-Rs") {
     if (argc < 4) {
       std::println(std::cerr, "{}", USAGE);
