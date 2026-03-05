@@ -58,7 +58,8 @@ public:
           .line = std::format("{} = {}", key, value),
           .keyEnd = kEnd,
           .valueStart = vStart,
-          .valueEnd = value.length() // Note: substr length vs end index
+          .valueEnd =
+              vStart + value.length() // Note: substr length vs end index
       };
     }
   };
