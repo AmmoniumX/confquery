@@ -1,27 +1,25 @@
-# Minimum CMake version required
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.30)
 
-set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel.")
+# Use exeperimental gate UUID for CMake v4.2.3
+set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "d0edc3af-4c50-42ea-a356-e2862fe7a444")
 
-# Project information
-project(ConfQuery CXX)
-
-include_directories(include)
-
-# Set the required C++ standard.
+# Set toolchain hints before project()
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
-# Suppress iterator debug level warnings for MSVC in Debug mode
-if(MSVC)
-    add_compile_definitions($<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
-endif()
+# Must be set before project() so compiler detection uses libc++ modules
+set(CMAKE_CXX_FLAGS "-stdlib=libc++" CACHE STRING "" FORCE)
 
-# Define the source files
-set(SOURCE_FILES
-    main.cpp
+# Initialize project
+project(ConfQuery CXX)
+
+# Target configuration
+add_executable(confq main.cpp)
+
+# Enable module support for this target
+set_target_properties(confq PROPERTIES 
+    CXX_SCAN_FOR_MODULES ON
+    CXX_MODULE_STD ON
 )
 
-# Add executable target
-add_executable(confq ${SOURCE_FILES})

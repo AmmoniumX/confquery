@@ -1,25 +1,6 @@
-#include <algorithm>
-#include <cctype>
-#include <expected>
-#include <filesystem>
-#include <fstream>
-#include <iostream>
-#include <iterator>
-#include <optional>
-#include <ostream>
-#include <print>
-#include <ranges>
-#include <stdexcept>
-#include <string>
-#include <utility>
-#include <variant>
-#include <vector>
+import std;
 
-// Linux INI config file parser and query tool
-// Using https://linuxcnc.org/docs/html/config/ini-config.html as format
-// reference
-
-using std::string, std::string_view;
+using std::string, std::string_view, std::size_t;
 
 enum class ExitCode : int {
   SUCCESS = 0,
@@ -503,7 +484,7 @@ private:
     });
   }
 
-  static std::span<const Line>::const_iterator
+  static std::span<const Line>::iterator
   find_section_header(std::span<const Line> lines, string_view section_name) {
     return std::find_if(lines.begin(), lines.end(), [section_name](auto &l) {
       if (const auto *sh = std::get_if<SectionHeader>(&l)) {
