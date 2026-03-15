@@ -31,8 +31,6 @@ enum class ExitCode : int {
 
 class ConfigDataView {
 public:
-  static constexpr int parse_error = std::to_underlying(ExitCode::EPARSE);
-
   // This is for the actual file format, we preserve comments
   struct SectionHeader {
     string line;
@@ -103,13 +101,13 @@ public:
     return out;
   }
 
-  // Returns 0 if parse is a success, else parse_error
-  int parse(std::string &&line, int line_num) {
+  // Returns true if parse success, false if error
+  bool parse(std::string &&line, int line_num) {
 
     // Parse comment lines
     if (line.empty() || line.starts_with("#") || line.starts_with(";")) {
       lines.emplace_back(Comment{std::move(line)});
-      return 0;
+      return true;
     }
 
     // We make a view substring with right whitespace trimmed for parsing, but
@@ -123,7 +121,7 @@ public:
                      "[{}] Expecting ']' as last character to close section, "
                      "found '{}':\n{}",
                      line_num, tline.back(), line);
-        return parse_error;
+        return false;
       }
 
       // Create a new section, adding the current one to the list only if it's
@@ -138,7 +136,7 @@ public:
       // Create SectionHeader, we can move line now
       lines.emplace_back(SectionHeader{std::move(line)});
 
-      return 0;
+      return true;
     }
 
     // Parse KeyValueEntry
@@ -148,7 +146,7 @@ public:
             std::cerr,
             "[{}] Found Key-Value entry outside of a section definition:\n{}",
             line_num, line);
-        return parse_error;
+        return false;
       }
 
       // Construct KeyValueEntry with the original (moved) line, pos are correct
@@ -163,7 +161,7 @@ public:
       lines.emplace_back(entry);
       current_section->entries.emplace_back(std::move(entry));
 
-      return 0;
+      return true;
     }
 
     // Parse ValueEntry
@@ -173,17 +171,17 @@ public:
             std::cerr,
             "[{}] Found Value entry outside of a section definition:\n{}",
             line_num, line);
-        return parse_error;
+        return false;
       }
       auto entry = ValueEntry{std::move(line), tline.size()};
       lines.emplace_back(entry);
       current_section->entries.emplace_back(std::move(entry));
-      return 0;
+      return true;
     }
 
     // Unknown line
     std::println(std::cerr, "[{}] Unknown line type:\n{}", line_num, line);
-    return parse_error;
+    return false;
   }
 
   void end() {
@@ -559,11 +557,11 @@ private:
 
 namespace fs = std::filesystem;
 
-std::expected<ConfigDataView, int> parseFile(const fs::path &path) {
+std::expected<ConfigDataView, ExitCode> parseFile(const fs::path &path) {
   std::ifstream file{path, std::ios_base::in};
   if (!file.is_open()) {
     std::println(std::cerr, "Failed to open file");
-    return std::unexpected(std::to_underlying(ExitCode::EOPEN));
+    return std::unexpected(ExitCode::EOPEN);
   }
 
   std::string current_line{};
@@ -571,9 +569,8 @@ std::expected<ConfigDataView, int> parseFile(const fs::path &path) {
   int line_num{0};
 
   while (std::getline(file, current_line)) {
-    int res = config.parse(std::move(current_line), ++line_num);
-    if (res != 0) {
-      return std::unexpected(res);
+    if (!config.parse(std::move(current_line), ++line_num)) {
+      return std::unexpected(ExitCode::EPARSE);
     }
   }
   config.end();
@@ -630,7 +627,7 @@ int main(int argc, char *argv[]) {
   fs::path file_path{argv[1]};
   auto parsed_res = parseFile(file_path);
   if (!parsed_res)
-    return parsed_res.error();
+    return std::to_underlying(parsed_res.error());
   auto parsed = parsed_res.value();
 
   if (op == "-Qs") {
