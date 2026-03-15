@@ -101,7 +101,7 @@ public:
   }
 
   // Returns true if parse success, false if error
-  bool parse(std::string &&line, int line_num) {
+  bool parse(std::string line, int line_num) {
 
     // Parse comment lines
     if (line.empty() || line.starts_with("#") || line.starts_with(";")) {
