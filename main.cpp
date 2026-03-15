@@ -42,21 +42,20 @@ public:
 
   struct KeyValueEntry {
     string line;
-    size_t keyEnd, valueStart, valueEnd;
+    size_t keyLen, valueStart, valueLen;
 
-    string_view key() const { return string_view(line).substr(0, keyEnd); }
+    string_view key() const { return string_view(line).substr(0, keyLen); }
     string_view value() const {
-      return string_view(line).substr(valueStart, valueEnd);
+      return string_view(line).substr(valueStart, valueLen);
     }
 
     static KeyValueEntry create(string key, string value) {
-      size_t kEnd = key.length();
-      size_t vStart = kEnd + 3;
+      size_t vStart = key.length() + 3;
       return {
           .line = std::format("{} = {}", key, value),
-          .keyEnd = kEnd,
+          .keyLen = key.length(),
           .valueStart = vStart,
-          .valueEnd = value.length() // Note: substr length vs end index
+          .valueLen = value.length() // Note: substr length vs end index
       };
     }
   };
@@ -153,9 +152,9 @@ public:
       // since we only trim the end
       auto keyEnd = trim_right(string_view{line}.substr(0, pos)).size();
       auto entry = KeyValueEntry{.line = std::move(line),
-                                 .keyEnd = keyEnd,
+                                 .keyLen = keyEnd,
                                  .valueStart = pos + 3,
-                                 .valueEnd = tline.size()};
+                                 .valueLen = tline.size()};
 
       // Store entry to lines and current_section
       lines.emplace_back(entry);
