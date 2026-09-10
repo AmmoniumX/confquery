@@ -139,8 +139,6 @@ private:
   static std::span<Line> find_section_subspan(std::span<Line> lines,
                                               std::string_view section_name);
 
-  // Template definitions must stay visible at every instantiation point, so
-  // this one can't be moved into confquery.cpp like the rest of the class.
   template <typename T>
   static void append_to_section(std::vector<Line> &lines,
                                 std::vector<Section>::iterator section_it,

@@ -2,11 +2,13 @@
 
 #include "confquery.hpp"
 
-#include <cstdint>
-#include <fstream>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <vector>
+
+#include <stdlib.h>
+#include <unistd.h>
 
 using namespace confquery;
 
@@ -34,17 +36,24 @@ std::string serialize(const ConfigDataView &config) {
 
 // RAII helper for tests that need a real file on disk (parseFile()).
 struct TempFile {
+  int fd = -1;
   fs::path path;
 
   explicit TempFile(std::string_view content) {
-    path = fs::temp_directory_path() /
-           ("confquery_doctest_" +
-            std::to_string(reinterpret_cast<uintptr_t>(this)) + ".conf");
-    std::ofstream ofs(path);
-    ofs << content;
+    std::string templ =
+        (fs::temp_directory_path() / "confquery_doctest_XXXXXX").string();
+    fd = mkstemp(templ.data());
+    if (fd == -1) {
+      throw std::runtime_error("mkstemp() failed");
+    }
+    path = templ;
+    write(fd, content.data(), content.size());
   }
 
   ~TempFile() {
+    if (fd != -1) {
+      close(fd);
+    }
     std::error_code ec;
     fs::remove(path, ec);
   }
