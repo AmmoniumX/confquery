@@ -17,7 +17,7 @@ namespace {
 // Drives ConfigDataView::parse() the same way parseFile() does, but from an
 // in-memory list of lines so tests don't need to touch the filesystem.
 ConfigDataView parse_lines(const std::vector<std::string> &input_lines,
-                            std::ostream &err = std::cerr) {
+                           std::ostream &err = std::cerr) {
   ConfigDataView config{err};
   int line_num = 0;
   for (const auto &line : input_lines) {
@@ -41,7 +41,7 @@ struct TempFile {
 
   explicit TempFile(std::string_view content) {
     std::string templ =
-        (fs::temp_directory_path() / "confquery_doctest_XXXXXX").string();
+        (fs::temp_directory_path() / "confquery.test.XXXXXX").string();
     fd = mkstemp(templ.data());
     if (fd == -1) {
       throw std::runtime_error("mkstemp() failed");
@@ -74,7 +74,8 @@ TEST_CASE("parse preserves comments, blank lines, and section structure") {
   });
 
   CHECK(config.has_section_header("[options]"));
-  CHECK(serialize(config) == "# a comment\n\n[options]\nCheckSpace\nFoo = Bar\n");
+  CHECK(serialize(config) ==
+        "# a comment\n\n[options]\nCheckSpace\nFoo = Bar\n");
 }
 
 TEST_CASE("parse extracts key/value and bare value entries correctly") {
@@ -128,7 +129,8 @@ TEST_CASE("set_value on an existing section appends without duplicating") {
   CHECK(serialize(config) == "[options]\nCheckSpace\nILoveCandy\n");
 }
 
-TEST_CASE("set_value on a brand-new section creates it with the correct value") {
+TEST_CASE(
+    "set_value on a brand-new section creates it with the correct value") {
   auto config = parse_lines({"[options]", "CheckSpace"});
 
   config.set_value("[multilib]", "hello");
@@ -136,8 +138,7 @@ TEST_CASE("set_value on a brand-new section creates it with the correct value") 
   const auto *value = config.get_value_entry("[multilib]", "hello");
   REQUIRE(value != nullptr);
   CHECK(value->value() == "hello");
-  CHECK(serialize(config) ==
-        "[options]\nCheckSpace\n[multilib]\nhello\n");
+  CHECK(serialize(config) == "[options]\nCheckSpace\n[multilib]\nhello\n");
 }
 
 TEST_CASE("set_key_value replaces an existing key's value in place") {
@@ -156,8 +157,7 @@ TEST_CASE("set_key_value on an existing section without the key appends it") {
 
   config.set_key_value("[options]", "ParallelDownloads", "16");
 
-  CHECK(serialize(config) ==
-        "[options]\nCheckSpace\nParallelDownloads = 16\n");
+  CHECK(serialize(config) == "[options]\nCheckSpace\nParallelDownloads = 16\n");
 }
 
 TEST_CASE("set_key_value on a brand-new section writes 'key = value'") {
@@ -169,9 +169,8 @@ TEST_CASE("set_key_value on a brand-new section writes 'key = value'") {
   REQUIRE(kv != nullptr);
   CHECK(kv->key() == "Include");
   CHECK(kv->value() == "/etc/pacman.d/mirrorlist");
-  CHECK(serialize(config) ==
-        "[options]\nCheckSpace\n[multilib]\nInclude = "
-        "/etc/pacman.d/mirrorlist\n");
+  CHECK(serialize(config) == "[options]\nCheckSpace\n[multilib]\nInclude = "
+                             "/etc/pacman.d/mirrorlist\n");
 }
 
 TEST_CASE("remove_section removes the section and all of its lines") {
