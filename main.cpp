@@ -27,6 +27,7 @@ enum class ExitCode : int {
   EARGS = 2,
   EOPEN = 3,
   EPARSE = 4,
+  EINTERNAL = 5,
 };
 
 class ConfigDataView {
@@ -62,9 +63,14 @@ public:
 
   struct ValueEntry {
     string line;
-    size_t valueEnd;
+    size_t valueLen;
 
-    string_view value() const { return string_view(line).substr(0, valueEnd); }
+    string_view value() const { return string_view(line).substr(0, valueLen); }
+
+    static ValueEntry create(string value) {
+      size_t vLen = value.length();
+      return {.line = std::move(value), .valueLen = vLen};
+    }
   };
 
   using Line = std::variant<SectionHeader, KeyValueEntry, ValueEntry, Comment>;
@@ -90,11 +96,12 @@ public:
     return std::visit([](const auto &val) { return val.line; }, entry);
   }
 
-  explicit ConfigDataView() : lines{}, sections{}, current_section{} {}
+  explicit ConfigDataView(std::ostream &err_stream = std::cerr)
+      : lines{}, sections{}, current_section{}, err(err_stream) {}
 
   friend std::ostream &operator<<(std::ostream &out,
                                   const ConfigDataView &data) {
-    for (const auto line : data.lines) {
+    for (const auto &line : data.lines) {
       out << to_string(line) << '\n';
     }
     return out;
@@ -113,10 +120,16 @@ public:
     // use original line for preserving original structure
     auto tline = trim_right(line);
 
+    // Parse empty lines
+    if (tline.empty()) {
+      lines.emplace_back(Comment{std::move(line)});
+      return true;
+    }
+
     // Parse Section Header
     if (tline[0] == '[') {
       if (tline.back() != ']') {
-        std::println(std::cerr,
+        std::println(err,
                      "[{}] Expecting ']' as last character to close section, "
                      "found '{}':\n{}",
                      line_num, tline.back(), line);
@@ -142,7 +155,7 @@ public:
     if (const auto pos = tline.find(" = "); pos != tline.npos) {
       if (!current_section.has_value()) {
         std::println(
-            std::cerr,
+            err,
             "[{}] Found Key-Value entry outside of a section definition:\n{}",
             line_num, line);
         return false;
@@ -167,8 +180,7 @@ public:
     if (!has_whitespace(tline)) {
       if (!current_section.has_value()) {
         std::println(
-            std::cerr,
-            "[{}] Found Value entry outside of a section definition:\n{}",
+            err, "[{}] Found Value entry outside of a section definition:\n{}",
             line_num, line);
         return false;
       }
@@ -179,7 +191,7 @@ public:
     }
 
     // Unknown line
-    std::println(std::cerr, "[{}] Unknown line type:\n{}", line_num, line);
+    std::println(err, "[{}] Unknown line type:\n{}", line_num, line);
     return false;
   }
 
@@ -190,59 +202,59 @@ public:
     }
   }
 
-  std::optional<Section> get_section(string_view section_name) const {
+  const Section *get_section(string_view section_name) const {
     const auto section_it = find_section(this->sections, section_name);
 
     if (section_it == this->sections.end())
-      return std::nullopt;
+      return nullptr;
 
-    return *section_it;
+    return &*section_it;
   }
 
   bool has_section_header(string_view section_name) const {
-    return get_section(section_name).has_value();
+    return get_section(section_name) != nullptr;
   }
 
-  std::optional<ValueEntry> get_value_entry(string_view section_name,
-                                            string_view value_name) const {
+  const ValueEntry *get_value_entry(string_view section_name,
+                                    string_view value_name) const {
     const auto section_it = find_section(this->sections, section_name);
 
     if (section_it != sections.end()) {
       for (const auto &entry : section_it->entries) {
         if (const auto *ve = std::get_if<ValueEntry>(&entry)) {
           if (ve->value() == value_name) {
-            return *ve;
+            return ve;
           }
         }
       }
     }
 
-    return std::nullopt;
+    return nullptr;
   }
 
   bool has_value_entry(string_view section, string_view value) const {
-    return get_value_entry(section, value).has_value();
+    return get_value_entry(section, value) != nullptr;
   }
 
-  std::optional<KeyValueEntry> get_key_value_pair(string_view section_name,
-                                                  string_view key_name) const {
+  const KeyValueEntry *get_key_value_pair(string_view section_name,
+                                          string_view key_name) const {
     const auto section_it = find_section(this->sections, section_name);
 
     if (section_it != sections.end()) {
       for (const auto &entry : section_it->entries) {
         if (const auto *kv = std::get_if<KeyValueEntry>(&entry)) {
           if (kv->key() == key_name) {
-            return *kv;
+            return kv;
           }
         }
       }
     }
 
-    return std::nullopt;
+    return nullptr;
   }
 
   bool has_key_value_pair(string_view section, string_view key) const {
-    return get_key_value_pair(section, key).has_value();
+    return get_key_value_pair(section, key) != nullptr;
   }
 
   void set_value(string_view section_name, string_view value) {
@@ -250,11 +262,12 @@ public:
 
     if (section_it == this->sections.end()) {
       // Add new section
-      this->sections.emplace_back(
-          Section{std::string{section_name}, {ValueEntry{std::string{value}}}});
+      this->sections.emplace_back(Section{
+          std::string{section_name}, {ValueEntry::create(std::string{value})}});
       // Add new lines for it
       this->lines.emplace_back(SectionHeader{std::string{section_name}});
-      this->lines.emplace_back(ValueEntry{std::string{value}});
+      this->lines.emplace_back(ValueEntry::create(std::string{value}));
+      return;
     }
     for (const auto &entry : section_it->entries) {
       if (const auto *v = std::get_if<ValueEntry>(&entry)) {
@@ -266,7 +279,7 @@ public:
     }
     // If we don't have it, add it
     append_to_section(this->lines, section_it, section_name,
-                      ValueEntry{std::string{value}});
+                      ValueEntry::create(std::string{value}));
   }
 
   void set_key_value(string_view section_name, string_view key,
@@ -280,7 +293,8 @@ public:
           {KeyValueEntry::create(std::string{key}, std::string{value})}});
       // Add new lines for it
       this->lines.emplace_back(SectionHeader{std::string{section_name}});
-      this->lines.emplace_back(ValueEntry{std::string{value}});
+      this->lines.emplace_back(
+          KeyValueEntry::create(std::string{key}, std::string{value}));
       return;
     }
     for (auto &entry : section_it->entries) {
@@ -444,6 +458,7 @@ public:
 
 private:
   std::optional<Section> current_section;
+  std::ostream &err;
 
   static std::string_view trim_right(std::string_view sv) {
     // Find the first non-whitespace character starting from the back
@@ -464,7 +479,7 @@ private:
 
   static std::vector<Section>::iterator
   find_section(std::vector<Section> &sections, string_view search_name) {
-    auto check = [search_name](const Section section) {
+    auto check = [search_name](const Section &section) {
       return section.name == search_name;
     };
 
@@ -473,7 +488,7 @@ private:
 
   static std::vector<Section>::const_iterator
   find_section(const std::vector<Section> &sections, string_view search_name) {
-    auto check = [search_name](const Section section) {
+    auto check = [search_name](const Section &section) {
       return section.name == search_name;
     };
 
@@ -577,7 +592,25 @@ std::expected<ConfigDataView, ExitCode> parseFile(const fs::path &path) {
   return config;
 }
 
+struct Args {
+  std::span<const char *const> args;
+
+  std::optional<std::string_view> operator[](size_t idx) const {
+    if (idx >= args.size()) {
+      return std::nullopt;
+    }
+
+    if (args[idx] == nullptr) {
+      return std::nullopt;
+    }
+
+    return std::string_view(args[idx]);
+  }
+};
+
 int main(int argc, char *argv[]) {
+  Args args{std::span(argv, static_cast<size_t>(argc))};
+
   const string USAGE = std::format(
       "{0} [FILE] <operation> [options...] \n"
       "Operations:\n"
@@ -588,7 +621,7 @@ int main(int argc, char *argv[]) {
       "-Rv [section] [value]: Remove value if exists\n"
       "-Rk [section] [key]: Remove value with specified key if it exists\n"
       "-Sv [section] [value]: Set value, does nothing if exists\n"
-      "-Sv [section] [key] [value]: Set key to value, overriding if exists\n"
+      "-Sk [section] [key] [value]: Set key to value, overriding if exists\n"
       "\n"
       "Example Usage:\n"
       "{0} /etc/pacman.conf -Qv \"[options]\" \"CheckSpace\"\n"
@@ -597,101 +630,108 @@ int main(int argc, char *argv[]) {
       "{0} /etc/pacman.conf -Rk \"[options]\" \"HoldPkg\"\n"
       "{0} /etc/pacman.conf -Sv \"[options]\" \"NoProgressBar\"\n"
       "{0} /etc/pacman.conf -Sk \"[options]\" \"ParallelDownloads\" \"16\"",
-      argv[0]);
+      args[0].value_or("confq"));
 
-  // Early parse: min 4 args
-  if (argc < 4) {
+  // Early parse: min 4 args (file, op, section)
+  auto op_arg = args[2];
+  auto section_arg = args[3];
+  if (!section_arg) {
     std::println(std::cerr, "{}", USAGE);
     return std::to_underlying(ExitCode::EARGS);
   }
-  string_view op{argv[2]};
-  string_view section{argv[3]};
+  string_view op = *op_arg;
+  string_view section = *section_arg;
 
   // Parse arguments and execute
   if (op == "-Qs" || op == "-Rs") {
-    if (argc < 4) {
+    if (!section_arg) {
       std::println(std::cerr, "{}", USAGE);
       return std::to_underlying(ExitCode::EARGS);
     }
   } else if (op == "-Sk") {
-    if (argc < 6) {
+    if (!args[5]) {
       std::println(std::cerr, "{}", USAGE);
       return std::to_underlying(ExitCode::EARGS);
     }
-  } else if (argc < 5) {
+  } else if (!args[4]) {
     std::println(std::cerr, "{}", USAGE);
     return std::to_underlying(ExitCode::EARGS);
   }
 
-  fs::path file_path{argv[1]};
+  fs::path file_path{*args[1]};
   auto parsed_res = parseFile(file_path);
   if (!parsed_res)
     return std::to_underlying(parsed_res.error());
-  auto parsed = parsed_res.value();
+  auto parsed = std::move(parsed_res).value();
 
-  if (op == "-Qs") {
-    auto query = parsed.get_section(section);
-    if (!query) {
-      return std::to_underlying(ExitCode::FAILURE);
+  try {
+    if (op == "-Qs") {
+      auto query = parsed.get_section(section);
+      if (!query) {
+        return std::to_underlying(ExitCode::FAILURE);
+      }
+      std::println("{}", query->name);
+
+      return std::to_underlying(ExitCode::SUCCESS);
+
+    } else if (op == "-Qv") {
+      string_view value = *args[4];
+      auto query = parsed.get_value_entry(section, value);
+      if (!query) {
+        return std::to_underlying(ExitCode::FAILURE);
+      }
+      std::println("{}", query->value());
+
+      return std::to_underlying(ExitCode::SUCCESS);
+
+    } else if (op == "-Qk") {
+      string_view key = *args[4];
+      auto query = parsed.get_key_value_pair(section, key);
+      if (!query) {
+        return std::to_underlying(ExitCode::FAILURE);
+      }
+      std::println("{}", query->value());
+
+      return std::to_underlying(ExitCode::SUCCESS);
+
+    } else if (op == "-Rs") {
+      auto res = parsed.remove_section(section);
+      std::cout << parsed << std::endl;
+
+      return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
+
+    } else if (op == "-Rv") {
+      string_view value = *args[4];
+      auto res = parsed.remove_value(section, value);
+      std::cout << parsed << std::endl;
+
+      return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
+
+    } else if (op == "-Rk") {
+      string_view key = *args[4];
+      auto res = parsed.remove_key(section, key);
+      std::cout << parsed << std::endl;
+
+      return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
+
+    } else if (op == "-Sv") {
+      string_view value = *args[4];
+      parsed.set_value(section, value);
+      std::cout << parsed << std::endl;
+
+      return std::to_underlying(ExitCode::SUCCESS);
+
+    } else if (op == "-Sk") {
+      string_view key = *args[4];
+      string_view value = *args[5];
+      parsed.set_key_value(section, key, value);
+      std::cout << parsed << std::endl;
+
+      return std::to_underlying(ExitCode::SUCCESS);
     }
-    std::println("{}", query->name);
-
-    return std::to_underlying(ExitCode::SUCCESS);
-
-  } else if (op == "-Qv") {
-    string_view value{argv[4]};
-    auto query = parsed.get_value_entry(section, value);
-    if (!query) {
-      return std::to_underlying(ExitCode::FAILURE);
-    }
-    std::println("{}", query->value());
-
-    return std::to_underlying(ExitCode::SUCCESS);
-
-  } else if (op == "-Qk") {
-    string_view key{argv[4]};
-    auto query = parsed.get_key_value_pair(section, key);
-    if (!query) {
-      return std::to_underlying(ExitCode::FAILURE);
-    }
-    std::println("{}", query->value());
-
-    return std::to_underlying(ExitCode::SUCCESS);
-
-  } else if (op == "-Rs") {
-    auto res = parsed.remove_section(section);
-    std::cout << parsed << std::endl;
-
-    return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
-
-  } else if (op == "-Rv") {
-    string_view value{argv[4]};
-    auto res = parsed.remove_value(section, value);
-    std::cout << parsed << std::endl;
-
-    return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
-
-  } else if (op == "-Rk") {
-    string_view key{argv[4]};
-    auto res = parsed.remove_key(section, key);
-    std::cout << parsed << std::endl;
-
-    return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
-
-  } else if (op == "-Sv") {
-    string_view value{argv[4]};
-    parsed.set_value(section, value);
-    std::cout << parsed << std::endl;
-
-    return std::to_underlying(ExitCode::SUCCESS);
-
-  } else if (op == "-Sk") {
-    string_view key{argv[4]};
-    string_view value{argv[5]};
-    parsed.set_key_value(section, key, value);
-    std::cout << parsed << std::endl;
-
-    return std::to_underlying(ExitCode::SUCCESS);
+  } catch (const std::runtime_error &e) {
+    std::println(std::cerr, "Internal error: {}", e.what());
+    return std::to_underlying(ExitCode::EINTERNAL);
   }
 
   std::print(std::cerr, "Unknown operation: {}", op);

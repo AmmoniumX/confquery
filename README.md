@@ -21,7 +21,7 @@ Operations:\n"
 
 -Sv [section] [value]: Set value, does nothing if exists
 
--Sv [section] [key] [value]: Set key to value, overriding if exists
+-Sk [section] [key] [value]: Set key to value, overriding if exists
 
 ## Example Usage:
 

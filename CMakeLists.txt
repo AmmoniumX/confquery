@@ -11,12 +11,7 @@ include_directories(include)
 # Set the required C++ standard.
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS ON)
-
-# Suppress iterator debug level warnings for MSVC in Debug mode
-if(MSVC)
-    add_compile_definitions($<$<CONFIG:Debug>:_ITERATOR_DEBUG_LEVEL=0>)
-endif()
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Define the source files
 set(SOURCE_FILES
