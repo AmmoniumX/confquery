@@ -1,3 +1,6 @@
 [submodule "doctest"]
 	path = doctest
 	url = https://github.com/doctest/doctest.git
+[submodule "ArgDispatch"]
+	path = ArgDispatch
+	url = https://github.com/AmmoniumX/ArgDispatch.git

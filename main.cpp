@@ -1,167 +1,135 @@
-#include <cstddef>
+#include <cstdlib>
 #include <filesystem>
-#include <format>
 #include <iostream>
-#include <optional>
 #include <print>
-#include <span>
 #include <stdexcept>
-#include <string>
 #include <string_view>
 #include <utility>
+
+#include <argdispatch/argdispatch.hpp>
 
 #include "confquery.hpp"
 
 using namespace confquery;
-using std::string, std::string_view;
+using std::string_view;
 
 namespace {
 
-// Bounds-checked argument access for program args
-struct Args {
-  std::span<const char *const> args;
-
-  std::optional<std::string_view> operator[](std::size_t idx) const {
-    if (idx >= args.size()) {
-      return std::nullopt;
-    }
-
-    if (args[idx] == nullptr) {
-      return std::nullopt;
-    }
-
-    return std::string_view(args[idx]);
+ConfigDataView load_or_exit(string_view file) {
+  fs::path file_path{file};
+  auto parsed_res = parseFile(file_path);
+  if (!parsed_res) {
+    std::exit(std::to_underlying(parsed_res.error()));
   }
-};
+  return std::move(parsed_res).value();
+}
+
+void query_section(string_view file, string_view section) {
+  auto parsed = load_or_exit(file);
+  auto query = parsed.get_section(section);
+  if (!query) {
+    std::exit(std::to_underlying(ExitCode::FAILURE));
+  }
+  std::println("{}", query->name);
+}
+
+void query_value(string_view file, string_view section, string_view value) {
+  auto parsed = load_or_exit(file);
+  auto query = parsed.get_value_entry(section, value);
+  if (!query) {
+    std::exit(std::to_underlying(ExitCode::FAILURE));
+  }
+  std::println("{}", query->value());
+}
+
+void query_key(string_view file, string_view section, string_view key) {
+  auto parsed = load_or_exit(file);
+  auto query = parsed.get_key_value_pair(section, key);
+  if (!query) {
+    std::exit(std::to_underlying(ExitCode::FAILURE));
+  }
+  std::println("{}", query->value());
+}
+
+void remove_section_op(string_view file, string_view section) {
+  auto parsed = load_or_exit(file);
+  auto res = parsed.remove_section(section);
+  std::cout << parsed << std::endl;
+  if (!res) {
+    std::exit(std::to_underlying(ExitCode::FAILURE));
+  }
+}
+
+void remove_value_op(string_view file, string_view section, string_view value) {
+  auto parsed = load_or_exit(file);
+  auto res = parsed.remove_value(section, value);
+  std::cout << parsed << std::endl;
+  if (!res) {
+    std::exit(std::to_underlying(ExitCode::FAILURE));
+  }
+}
+
+void remove_key_op(string_view file, string_view section, string_view key) {
+  auto parsed = load_or_exit(file);
+  auto res = parsed.remove_key(section, key);
+  std::cout << parsed << std::endl;
+  if (!res) {
+    std::exit(std::to_underlying(ExitCode::FAILURE));
+  }
+}
+
+void set_value_op(string_view file, string_view section, string_view value) {
+  auto parsed = load_or_exit(file);
+  parsed.set_value(section, value);
+  std::cout << parsed << std::endl;
+}
+
+void set_key_value_op(string_view file, string_view section, string_view key,
+                      string_view value) {
+  auto parsed = load_or_exit(file);
+  parsed.set_key_value(section, key, value);
+  std::cout << parsed << std::endl;
+}
 
 } // namespace
 
 int main(int argc, char *argv[]) {
-  Args args{std::span(argv, static_cast<size_t>(argc))};
+  argdispatch::ArgDispatcher dispatcher;
 
-  const string USAGE = std::format(
-      "{0} [FILE] <operation> [options...] \n"
-      "Operations:\n"
-      "-Qs [section]: Query if section exists\n"
-      "-Qv [section] [value]: Query if value exists\n"
-      "-Qk [section] [key]: Query if key exists\n"
-      "-Rs [section]: Remove entire section\n"
-      "-Rv [section] [value]: Remove value if exists\n"
-      "-Rk [section] [key]: Remove value with specified key if it exists\n"
-      "-Sv [section] [value]: Set value, does nothing if exists\n"
-      "-Sk [section] [key] [value]: Set key to value, overriding if exists\n"
-      "\n"
-      "Example Usage:\n"
-      "{0} /etc/pacman.conf -Qv \"[options]\" \"CheckSpace\"\n"
-      "{0} /etc/pacman.conf -Qk \"[options]\" \"HoldPkg\"\n"
-      "{0} /etc/pacman.conf -Rv \"[options]\" \"CheckSpace\"\n"
-      "{0} /etc/pacman.conf -Rk \"[options]\" \"HoldPkg\"\n"
-      "{0} /etc/pacman.conf -Sv \"[options]\" \"NoProgressBar\"\n"
-      "{0} /etc/pacman.conf -Sk \"[options]\" \"ParallelDownloads\" \"16\"",
-      args[0].value_or("confq"));
+  auto file = dispatcher.and_then<string_view>("file");
 
-  // Early parse: min 4 args (file, op, section)
-  auto op_arg = args[2];
-  auto section_arg = args[3];
-  if (!section_arg) {
-    std::println(std::cerr, "{}", USAGE);
-    return std::to_underlying(ExitCode::EARGS);
-  }
-  string_view op = *op_arg;
-  string_view section = *section_arg;
-
-  // Parse arguments and execute
-  if (op == "-Qs" || op == "-Rs") {
-    if (!section_arg) {
-      std::println(std::cerr, "{}", USAGE);
-      return std::to_underlying(ExitCode::EARGS);
-    }
-  } else if (op == "-Sk") {
-    if (!args[5]) {
-      std::println(std::cerr, "{}", USAGE);
-      return std::to_underlying(ExitCode::EARGS);
-    }
-  } else if (!args[4]) {
-    std::println(std::cerr, "{}", USAGE);
-    return std::to_underlying(ExitCode::EARGS);
-  }
-
-  fs::path file_path{*args[1]};
-  auto parsed_res = parseFile(file_path);
-  if (!parsed_res)
-    return std::to_underlying(parsed_res.error());
-  auto parsed = std::move(parsed_res).value();
+  file.literal("-Qs").and_then<string_view>("section").executes(query_section);
+  file.literal("-Qv")
+      .and_then<string_view>("section")
+      .and_then<string_view>("value")
+      .executes(query_value);
+  file.literal("-Qk")
+      .and_then<string_view>("section")
+      .and_then<string_view>("key")
+      .executes(query_key);
+  file.literal("-Rs").and_then<string_view>("section").executes(remove_section_op);
+  file.literal("-Rv")
+      .and_then<string_view>("section")
+      .and_then<string_view>("value")
+      .executes(remove_value_op);
+  file.literal("-Rk")
+      .and_then<string_view>("section")
+      .and_then<string_view>("key")
+      .executes(remove_key_op);
+  file.literal("-Sv")
+      .and_then<string_view>("section")
+      .and_then<string_view>("value")
+      .executes(set_value_op);
+  file.literal("-Sk")
+      .and_then<string_view>("section")
+      .and_then<string_view>("key")
+      .and_then<string_view>("value")
+      .executes(set_key_value_op);
 
   try {
-    if (op == "-Qs") {
-      auto query = parsed.get_section(section);
-      if (!query) {
-        return std::to_underlying(ExitCode::FAILURE);
-      }
-      std::println("{}", query->name);
-
-      return std::to_underlying(ExitCode::SUCCESS);
-
-    } else if (op == "-Qv") {
-      string_view value = *args[4];
-      auto query = parsed.get_value_entry(section, value);
-      if (!query) {
-        return std::to_underlying(ExitCode::FAILURE);
-      }
-      std::println("{}", query->value());
-
-      return std::to_underlying(ExitCode::SUCCESS);
-
-    } else if (op == "-Qk") {
-      string_view key = *args[4];
-      auto query = parsed.get_key_value_pair(section, key);
-      if (!query) {
-        return std::to_underlying(ExitCode::FAILURE);
-      }
-      std::println("{}", query->value());
-
-      return std::to_underlying(ExitCode::SUCCESS);
-
-    } else if (op == "-Rs") {
-      auto res = parsed.remove_section(section);
-      std::cout << parsed << std::endl;
-
-      return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
-
-    } else if (op == "-Rv") {
-      string_view value = *args[4];
-      auto res = parsed.remove_value(section, value);
-      std::cout << parsed << std::endl;
-
-      return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
-
-    } else if (op == "-Rk") {
-      string_view key = *args[4];
-      auto res = parsed.remove_key(section, key);
-      std::cout << parsed << std::endl;
-
-      return std::to_underlying(res ? ExitCode::SUCCESS : ExitCode::FAILURE);
-
-    } else if (op == "-Sv") {
-      string_view value = *args[4];
-      parsed.set_value(section, value);
-      std::cout << parsed << std::endl;
-
-      return std::to_underlying(ExitCode::SUCCESS);
-
-    } else if (op == "-Sk") {
-      string_view key = *args[4];
-      string_view value = *args[5];
-      parsed.set_key_value(section, key, value);
-      std::cout << parsed << std::endl;
-
-      return std::to_underlying(ExitCode::SUCCESS);
-    }
+    return dispatcher.dispatch(argc, argv);
   } catch (const std::runtime_error &e) {
     std::println(std::cerr, "Internal error: {}", e.what());
     return std::to_underlying(ExitCode::EINTERNAL);
   }
-
-  std::print(std::cerr, "Unknown operation: {}", op);
-  return std::to_underlying(ExitCode::EARGS);
 }

@@ -24,6 +24,7 @@ target_include_directories(confquery_lib PUBLIC ${CMAKE_SOURCE_DIR})
 # Add executable target
 add_executable(confq main.cpp)
 target_link_libraries(confq PRIVATE confquery_lib)
+target_include_directories(confq PRIVATE ${CMAKE_SOURCE_DIR}/ArgDispatch/include)
 
 # Unit tests
 enable_testing()
