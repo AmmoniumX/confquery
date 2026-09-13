@@ -102,7 +102,7 @@ int main(int argc, char *argv[]) {
   });
   // clang-format on
 
-  dispatcher.register_builtin_commands();
+  dispatcher.register_all_builtins();
   auto file = dispatcher.and_then<string_view>("file");
 
   // clang-format off
